@@ -1,21 +1,52 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/workout_record.dart';
+class WorkoutData {
+  final String type;
+  final String date;
+  final String startTime;
+  final double duration;
+  final int calories;
+  final double distance;
+  final double? heartRate;
+  final String? notes;
+
+  WorkoutData({
+    required this.type,
+    required this.date,
+    required this.startTime,
+    required this.duration,
+    required this.calories,
+    required this.distance,
+    this.heartRate,
+    this.notes,
+  });
+
+  factory WorkoutData.fromJson(Map<String, dynamic> json) {
+    return WorkoutData(
+      type: json['type'],
+      date: json['date'],
+      startTime: json['startTime'],
+      duration: (json['duration'] as num).toDouble(),
+      calories: json['calories'],
+      distance: (json['distance'] as num).toDouble(),
+      heartRate: json['heartRate'] != null
+          ? (json['heartRate'] as num).toDouble()
+          : null,
+      notes: json['notes'],
+    );
+  }
+}
 
 class CalendarScreen extends StatefulWidget {
-  final List<WorkoutRecord> workoutRecords;
-  final void Function(DateTime date) onNavigateToDayDetail;
   final VoidCallback onNavigateToAddWorkout;
-  final VoidCallback? onBack;
 
   const CalendarScreen({
     super.key,
-    required this.workoutRecords,
-    required this.onNavigateToDayDetail,
     required this.onNavigateToAddWorkout,
-    this.onBack,
   });
 
   @override
@@ -25,14 +56,33 @@ class CalendarScreen extends StatefulWidget {
 class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _selectedDate = DateTime.now();
   DateTime _focusedDay = DateTime.now();
+  List<WorkoutData> workoutRecords = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadWorkouts();
+  }
+
+  Future<void> _loadWorkouts() async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> stored =
+        prefs.getStringList('workouts') ?? [];
+
+    setState(() {
+      workoutRecords = stored
+          .map((e) => WorkoutData.fromJson(jsonDecode(e)))
+          .toList();
+    });
+  }
 
   String _formatDateKey(DateTime date) {
     return DateFormat('yyyy-MM-dd').format(date);
   }
 
-  List<WorkoutRecord> _getRecordsForDate(DateTime date) {
+  List<WorkoutData> _getRecordsForDate(DateTime date) {
     final key = _formatDateKey(date);
-    return widget.workoutRecords.where((r) => r.date == key).toList();
+    return workoutRecords.where((r) => r.date == key).toList();
   }
 
   bool _hasWorkout(DateTime date) {
@@ -43,7 +93,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final now = DateTime.now();
     final monthKey = DateFormat('yyyy-MM').format(now);
 
-    return widget.workoutRecords
+    return workoutRecords
         .where((r) => r.date.startsWith(monthKey))
         .map((r) => r.date)
         .toSet()
@@ -61,7 +111,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final totalCalories =
         records.fold<int>(0, (sum, r) => sum + r.calories);
     final totalMinutes =
-        records.fold<int>(0, (sum, r) => sum + r.duration);
+        records.fold<int>(0, (sum, r) => sum + r.duration.toInt());
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
@@ -103,9 +153,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
           colors: [Colors.purple, Colors.deepPurple],
         ),
       ),
-      child: Column(
+      child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: const [
+        children: [
           Row(
             children: [
               Icon(Icons.calendar_today, color: Colors.white),
@@ -137,17 +187,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
         lastDay: DateTime(2100),
         selectedDayPredicate: (day) => isSameDay(day, _selectedDate),
         onDaySelected: (selectedDay, focusedDay) {
-          final isSame = isSameDay(selectedDay, _selectedDate);
-
           setState(() {
             _selectedDate = selectedDay;
             _focusedDay = focusedDay;
           });
-
-          // ★ 同じ日を2回タップした場合のみ遷移
-          if (isSame) {
-            widget.onNavigateToDayDetail(selectedDay);
-          }
         },
         calendarBuilders: CalendarBuilders(
           markerBuilder: (context, date, events) {
@@ -172,7 +215,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildSelectedDateInfo(
-    List<WorkoutRecord> records,
+    List<WorkoutData> records,
     int totalCalories,
     int totalMinutes,
   ) {
@@ -202,12 +245,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     spacing: 8,
                     children:
                         records.map((r) => Chip(label: Text(r.type))).toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () =>
-                        widget.onNavigateToDayDetail(_selectedDate),
-                    child: const Text('詳細を見る'),
                   ),
                 ],
               )

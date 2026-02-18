@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WorkoutData {
   final String type;
@@ -21,6 +23,34 @@ class WorkoutData {
     this.heartRate,
     this.notes,
   });
+
+  factory WorkoutData.fromJson(Map<String, dynamic> json) {
+    return WorkoutData(
+      type: json['type'],
+      date: json['date'],
+      startTime: json['startTime'],
+      duration: (json['duration'] as num).toDouble(),
+      calories: json['calories'],
+      distance: (json['distance'] as num).toDouble(),
+      heartRate: json['heartRate'] != null
+          ? (json['heartRate'] as num).toDouble()
+          : null,
+      notes: json['notes'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'type': type,
+      'date': date,
+      'startTime': startTime,
+      'duration': duration,
+      'calories': calories,
+      'distance': distance,
+      'heartRate': heartRate,
+      'notes': notes,
+    };
+  }
 }
 
 class AddWorkoutScreen extends StatefulWidget {
@@ -58,7 +88,7 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
   ];
 
   int get estimatedCalories {
-    final durationValue = double.tryParse(duration); // ★ 修正
+    final durationValue = double.tryParse(duration);
     if (selectedType.isEmpty || durationValue == null) return 0;
 
     final type =
@@ -67,7 +97,15 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     return (durationValue * (type['cal'] as int)).round();
   }
 
-  void _save() {
+  Future<void> _saveToLocal(WorkoutData workout) async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> stored =
+        prefs.getStringList('workouts') ?? [];
+    stored.add(jsonEncode(workout.toJson()));
+    await prefs.setStringList('workouts', stored);
+  }
+
+  void _save() async {
     final durationValue = double.tryParse(duration);
 
     if (selectedType.isEmpty ||
@@ -90,13 +128,14 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
           '${startTime!.hour.toString().padLeft(2, '0')}:${startTime!.minute.toString().padLeft(2, '0')}',
       duration: durationValue,
       calories: estimatedCalories,
-      distance: double.tryParse(distance) ?? 0, // ★ 安全
+      distance: double.tryParse(distance) ?? 0,
       heartRate: heartRate.isNotEmpty
           ? double.tryParse(heartRate)
           : null,
       notes: notes.isNotEmpty ? notes : null,
     );
 
+    await _saveToLocal(workout);
     widget.onSave(workout);
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -120,7 +159,7 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
                 children: [
                   _buildWorkoutType(),
                   const SizedBox(height: 16),
-                  _buildBasicInfo(),
+                  _buildBasicInfo(), // ← 修正版
                   const SizedBox(height: 16),
                   _buildOptionalInfo(),
                   const SizedBox(height: 16),
@@ -135,8 +174,6 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
       ),
     );
   }
-
-  // ===== UI Parts =====
 
   Widget _buildHeader() {
     return Container(
@@ -218,51 +255,66 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     );
   }
 
+  // 修正版: 日付・開始時刻選択を追加
   Widget _buildBasicInfo() {
     return _card(
       title: '基本情報',
       child: Column(
         children: [
+          // 日付選択
           ListTile(
             title: const Text('日付'),
-            trailing: TextButton(
-              child: Text(
-                  '${selectedDate.year}/${selectedDate.month}/${selectedDate.day}'),
-              onPressed: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: selectedDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2100),
-                );
-                if (picked != null) {
-                  setState(() => selectedDate = picked);
-                }
-              },
+            trailing: Text(
+              '${selectedDate.year}/${selectedDate.month}/${selectedDate.day}',
             ),
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: selectedDate,
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+              );
+
+              if (picked != null) {
+                setState(() {
+                  selectedDate = picked;
+                });
+              }
+            },
           ),
+
+          // 開始時刻選択
           ListTile(
             title: const Text('開始時刻'),
-            trailing: TextButton(
-              child: Text(startTime == null
-                  ? '選択'
-                  : startTime!.format(context)),
-              onPressed: () async {
-                final picked = await showTimePicker(
-                  context: context,
-                  initialTime: TimeOfDay.now(),
-                );
-                if (picked != null) {
-                  setState(() => startTime = picked);
-                }
-              },
+            trailing: Text(
+              startTime == null
+                  ? '未選択'
+                  : startTime!.format(context),
             ),
+            onTap: () async {
+              final picked = await showTimePicker(
+                context: context,
+                initialTime: startTime ?? TimeOfDay.now(),
+              );
+
+              if (picked != null) {
+                setState(() {
+                  startTime = picked;
+                });
+              }
+            },
           ),
+
+          const SizedBox(height: 12),
+
           TextField(
-            decoration: const InputDecoration(labelText: '運動時間（分）'),
+            decoration: const InputDecoration(
+              labelText: '運動時間（分）',
+              border: OutlineInputBorder(),
+            ),
             keyboardType: TextInputType.number,
             inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly, // ★ 重要
+              FilteringTextInputFormatter.digitsOnly,
             ],
             onChanged: (v) => setState(() => duration = v),
           ),
@@ -279,17 +331,11 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
           TextField(
             decoration: const InputDecoration(labelText: '距離（km）'),
             keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-            ],
             onChanged: (v) => distance = v,
           ),
           TextField(
             decoration: const InputDecoration(labelText: '平均心拍数'),
             keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-            ],
             onChanged: (v) => heartRate = v,
           ),
           TextField(
@@ -325,13 +371,6 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.green,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
         onPressed: _save,
         child: const Text('記録を保存'),
       ),
@@ -341,17 +380,15 @@ class _AddWorkoutScreenState extends State<AddWorkoutScreen> {
   Widget _card({required String title, required Widget child}) {
     return Container(
       padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 16)),
+          Text(title),
           const SizedBox(height: 12),
           child,
         ],

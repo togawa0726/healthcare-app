@@ -15,13 +15,9 @@ import 'screens/calories_detail_screen.dart';
 import 'screens/active_time_detail_screen.dart';
 import 'screens/ProfileScreen.dart';
 import 'screens/CalendarScreen.dart';
-import 'screens/DayDetailScreen.dart';
 import 'screens/monthlystatsscreen.dart';
 import 'screens/add_workout_screen.dart';
 import 'screens/SignupCompleteScreen.dart';
-
-// models
-import 'models/workout_record.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,7 +43,10 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'ヘルスケアアプリ',
-      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
       home: isLoggedIn
           ? StepCounterApp(onLogout: _handleLogout)
           : AuthScreen(onLoginSuccess: _handleLoginSuccess),
@@ -65,17 +64,17 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   bool isLogin = true;
-  bool signupCompleted = false; // ✅ 追加
+  bool signupCompleted = false;
+  String signedUpUserName = "";
 
-  String signedUpUserName = ""; // サインアップ完了時の名前
-
-  void _login(String email, String password) => widget.onLoginSuccess();
+  void _login(String email, String password) {
+    widget.onLoginSuccess();
+  }
 
   void _signup(String name, String email, String password) {
-    // サインアップ処理の後に
     setState(() {
       signedUpUserName = name;
-      signupCompleted = true; // 完了画面に切り替え
+      signupCompleted = true;
     });
   }
 
@@ -89,7 +88,6 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     if (signupCompleted) {
-      // サインアップ完了画面
       return SignupCompleteScreen(
         userName: signedUpUserName,
         onBackToLogin: _backToLoginFromSignupComplete,
@@ -121,7 +119,6 @@ class _StepCounterAppState extends State<StepCounterApp> {
   Stream<StepCount>? _stepStream;
   int _steps = 0;
   String _currentScreen = 'home';
-  final List<WorkoutRecord> _workoutRecords = [];
 
   @override
   void initState() {
@@ -134,7 +131,11 @@ class _StepCounterAppState extends State<StepCounterApp> {
     if (await Permission.activityRecognition.request().isGranted ||
         !Theme.of(context).platform.toString().contains('android')) {
       _stepStream = Pedometer.stepCountStream;
-      _stepStream!.listen((event) => setState(() => _steps = event.steps));
+      _stepStream!.listen((event) {
+        setState(() {
+          _steps = event.steps;
+        });
+      });
     }
   }
 
@@ -143,13 +144,14 @@ class _StepCounterAppState extends State<StepCounterApp> {
 
   Future<void> _saveSteps() async {
     final prefs = await SharedPreferences.getInstance();
-    prefs.setInt('today_steps', _steps);
+    await prefs.setInt('today_steps', _steps);
   }
 
   Future<void> _loadSteps() async {
     final prefs = await SharedPreferences.getInstance();
-    _steps = prefs.getInt('today_steps') ?? 0;
-    setState(() {});
+    setState(() {
+      _steps = prefs.getInt('today_steps') ?? 0;
+    });
   }
 
   void _openDetail(String type) {
@@ -192,67 +194,49 @@ class _StepCounterAppState extends State<StepCounterApp> {
 
     switch (_currentScreen) {
       case 'home':
-        body = HomeScreen(steps: _steps, onNavigate: _openDetail);
+        body = HomeScreen(
+          steps: _steps,
+          onNavigate: _openDetail,
+        );
         break;
+
       case 'activity':
         body = ActivityScreen();
         break;
+
       case 'calendar':
         body = CalendarScreen(
-          workoutRecords: _workoutRecords,
-          onNavigateToDayDetail: (date) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DayDetailScreen(
-                  selectedDate: date,
-                  workoutRecords: _workoutRecords,
-                  onBack: () => Navigator.pop(context),
-                ),
-              ),
-            );
-          },
           onNavigateToAddWorkout: () {
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => AddWorkoutScreen(
                   onBack: () => Navigator.pop(context),
-                  onSave: (workout) {
-                    setState(() {
-                      _workoutRecords.add(
-                        WorkoutRecord(
-                          id: DateTime.now()
-                              .millisecondsSinceEpoch
-                              .toString(),
-                          date: workout.date,
-                          type: workout.type,
-                          startTime: workout.startTime,
-                          duration: workout.duration.toInt(),
-                          calories: workout.calories,
-                          distance: workout.distance,
-                          heartRate: workout.heartRate?.toInt(),
-                          notes: workout.notes,
-                        ),
-                      );
-                    });
-                  },
+                  onSave: (_) {},
                 ),
               ),
-            );
+            ).then((_) {
+              // 戻ってきたら再描画（カレンダーが再ロードする）
+              setState(() {});
+            });
           },
         );
         break;
+
       case 'health':
         body = HealthScreen();
         break;
+
       case 'monthly':
-        body =
-            MonthlyStatsScreen(onBack: () => setState(() => _currentScreen = 'home'));
+        body = MonthlyStatsScreen(
+          onBack: () => setState(() => _currentScreen = 'home'),
+        );
         break;
+
       case 'profile':
         body = ProfileScreen(onLogout: widget.onLogout);
         break;
+
       default:
         body = const SizedBox();
     }
@@ -261,7 +245,11 @@ class _StepCounterAppState extends State<StepCounterApp> {
       body: body,
       bottomNavigationBar: NavigationBarWidget(
         currentScreen: _currentScreen,
-        onNavigate: (screen) => setState(() => _currentScreen = screen),
+        onNavigate: (screen) {
+          setState(() {
+            _currentScreen = screen;
+          });
+        },
       ),
     );
   }
