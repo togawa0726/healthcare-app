@@ -3,6 +3,8 @@ import 'package:pedometer/pedometer.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // screens
 import 'screens/login_screen.dart';
@@ -21,22 +23,13 @@ import 'screens/SignupCompleteScreen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(); // 🔥 追加
   await initializeDateFormatting('ja_JP', null);
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool isLoggedIn = false;
-
-  void _handleLoginSuccess() => setState(() => isLoggedIn = true);
-  void _handleLogout() => setState(() => isLoggedIn = false);
 
   @override
   Widget build(BuildContext context) {
@@ -47,16 +40,45 @@ class _MyAppState extends State<MyApp> {
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: isLoggedIn
-          ? StepCounterApp(onLogout: _handleLogout)
-          : AuthScreen(onLoginSuccess: _handleLoginSuccess),
+      home: const AuthGate(), // 🔥 変更
+    );
+  }
+}
+
+/// 🔥 Firebaseログイン状態を監視するゲート
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        // ローディング中
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        // ログイン済み
+        if (snapshot.hasData) {
+          return StepCounterApp(
+            onLogout: () async {
+              await FirebaseAuth.instance.signOut();
+            },
+          );
+        }
+
+        // 未ログイン
+        return const AuthScreen();
+      },
     );
   }
 }
 
 class AuthScreen extends StatefulWidget {
-  final VoidCallback onLoginSuccess;
-  const AuthScreen({super.key, required this.onLoginSuccess});
+  const AuthScreen({super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -67,8 +89,18 @@ class _AuthScreenState extends State<AuthScreen> {
   bool signupCompleted = false;
   String signedUpUserName = "";
 
-  void _login(String email, String password) {
-    widget.onLoginSuccess();
+  /// 🔥 Firebaseログイン処理
+  Future<void> _login(String email, String password) async {
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'ログインに失敗しました')),
+      );
+    }
   }
 
   void _signup(String name, String email, String password) {
@@ -135,6 +167,7 @@ class _StepCounterAppState extends State<StepCounterApp> {
         setState(() {
           _steps = event.steps;
         });
+        _saveSteps(); // 🔥 歩数更新時に保存
       });
     }
   }
@@ -199,11 +232,9 @@ class _StepCounterAppState extends State<StepCounterApp> {
           onNavigate: _openDetail,
         );
         break;
-
       case 'activity':
         body = ActivityScreen();
         break;
-
       case 'calendar':
         body = CalendarScreen(
           onNavigateToAddWorkout: () {
@@ -216,27 +247,22 @@ class _StepCounterAppState extends State<StepCounterApp> {
                 ),
               ),
             ).then((_) {
-              // 戻ってきたら再描画（カレンダーが再ロードする）
               setState(() {});
             });
           },
         );
         break;
-
       case 'health':
         body = HealthScreen();
         break;
-
       case 'monthly':
         body = MonthlyStatsScreen(
           onBack: () => setState(() => _currentScreen = 'home'),
         );
         break;
-
       case 'profile':
         body = ProfileScreen(onLogout: widget.onLogout);
         break;
-
       default:
         body = const SizedBox();
     }
